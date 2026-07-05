@@ -1,4 +1,5 @@
 import os
+import stat
 import shutil
 from pathlib import Path
 from typing import Dict, List
@@ -36,6 +37,14 @@ def safe_repo_name(repo_url: str) -> str:
     return repo_name.replace(" ", "_")
 
 
+def handle_remove_readonly(func, path, exc_info):
+    """
+    Windows fix: Git sometimes creates read-only files inside .git.
+    This changes permission and retries deletion.
+    """
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
 def clone_repo(repo_url: str, base_dir: str = "repos") -> str:
     """
     Clone a public GitHub repository into the local repos/ directory.
@@ -47,7 +56,7 @@ def clone_repo(repo_url: str, base_dir: str = "repos") -> str:
     local_path = os.path.join(base_dir, repo_name)
 
     if os.path.exists(local_path):
-        shutil.rmtree(local_path)
+    	shutil.rmtree(local_path, onerror=handle_remove_readonly)
 
     git.Repo.clone_from(
         repo_url,
