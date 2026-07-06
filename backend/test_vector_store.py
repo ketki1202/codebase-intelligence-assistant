@@ -1,114 +1,67 @@
-import hashlib
-import os
-from typing import Dict, List
-
-import chromadb
-from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
+from ingestion.github_loader import clone_repo, load_files
+from ingestion.chunker import chunk_documents
+from rag.vector_store import CodebaseVectorStore
 
-class CodebaseVectorStore:
-    """
-    Handles storing and searching code chunks using ChromaDB + OpenAI embeddings.
-    """
 
-    def __init__(self, collection_name: str = "codebase"):
-        self.collection_name = collection_name
+def print_search_results(results):
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = results["distances"][0]
 
-        # Force loading API key from .env instead of old PowerShell environment variable
-        load_dotenv(override=True)
+    print("\n--- Search Results ---")
 
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "OPENAI_API_KEY is missing. Add it to your .env file."
-            )
+    for index, metadata in enumerate(metadatas):
+        print(f"\nResult {index + 1}")
+        print(f"File: {metadata['file_path']}")
+        print(f"Chunk: {metadata['chunk_index']}")
+        print(f"Distance: {round(distances[index], 4)}")
+        print("Preview:")
+        print(documents[index][:500])
 
-        self.client = chromadb.PersistentClient(path="chroma_db")
 
-        self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=api_key,
-            model_name="text-embedding-3-small"
-        )
+def main():
+    load_dotenv(override=True)
 
-        self.collection = self.client.get_or_create_collection(
-            name=self.collection_name,
-            embedding_function=self.embedding_function
-        )
+    repo_url = "https://github.com/pallets/click"
 
-    def reset(self) -> None:
-        """
-        Delete and recreate the collection.
-        Useful when indexing a new repository.
-        """
-        try:
-            self.client.delete_collection(self.collection_name)
-        except Exception:
-            pass
+    print("Cloning repository...")
+    repo_path = clone_repo(repo_url)
 
-        self.collection = self.client.get_or_create_collection(
-            name=self.collection_name,
-            embedding_function=self.embedding_function
-        )
+    print("Loading files...")
+    documents = load_files(repo_path)
 
-    def _make_chunk_id(self, chunk: Dict) -> str:
-        """
-        Create stable unique ID for each chunk.
-        """
-        raw_id = (
-            f"{chunk['file_path']}::"
-            f"{chunk['chunk_index']}::"
-            f"{chunk['content'][:80]}"
-        )
-        return hashlib.md5(raw_id.encode("utf-8")).hexdigest()
+    print("Chunking documents...")
+    chunks = chunk_documents(documents)
 
-    def add_chunks(self, chunks: List[Dict], batch_size: int = 50) -> int:
-        """
-        Add chunks to ChromaDB in batches.
-        """
-        total_added = 0
+    # Limit chunks for Day 3 testing to avoid unnecessary API cost/time.
+    test_chunks = chunks[:120]
 
-        for start in range(0, len(chunks), batch_size):
-            batch = chunks[start:start + batch_size]
+    print(f"Files loaded: {len(documents)}")
+    print(f"Chunks created: {len(chunks)}")
+    print(f"Chunks used for this test: {len(test_chunks)}")
 
-            ids = [self._make_chunk_id(chunk) for chunk in batch]
-            documents = [chunk["content"] for chunk in batch]
-            metadatas = [
-                {
-                    "file_path": chunk["file_path"],
-                    "file_name": chunk["file_name"],
-                    "extension": chunk["extension"],
-                    "chunk_index": chunk["chunk_index"],
-                    "total_chunks_in_file": chunk["total_chunks_in_file"]
-                }
-                for chunk in batch
-            ]
+    print("\nInitializing vector store...")
+    vector_store = CodebaseVectorStore()
 
-            self.collection.add(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas
-            )
+    print("Resetting existing ChromaDB collection...")
+    vector_store.reset()
 
-            total_added += len(batch)
-            print(f"Added {total_added}/{len(chunks)} chunks...")
+    print("Adding chunks to ChromaDB...")
+    total_added = vector_store.add_chunks(test_chunks)
 
-        return total_added
+    print(f"\nTotal chunks stored: {total_added}")
+    print(f"Collection count: {vector_store.count()}")
 
-    def search(self, query: str, n_results: int = 5) -> Dict:
-        """
-        Search ChromaDB for chunks most relevant to the query.
-        """
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=n_results,
-            include=["documents", "metadatas", "distances"]
-        )
+    query = "Where is the command line interface defined?"
+    print(f"\nSearching query: {query}")
 
-        return results
+    results = vector_store.search(query, n_results=5)
+    print_search_results(results)
 
-    def count(self) -> int:
-        """
-        Return number of stored chunks.
-        """
-        return self.collection.count()
+    print("\nDay 3 vector search test completed successfully.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,34 +1,25 @@
 import hashlib
-import os
 from typing import Dict, List
 
 import chromadb
 from chromadb.utils import embedding_functions
-from dotenv import load_dotenv
 
 
 class CodebaseVectorStore:
     """
-    Handles storing and searching code chunks using ChromaDB + OpenAI embeddings.
+    Handles storing and searching code chunks using ChromaDB + local embeddings.
+    No OpenAI API key is required for embeddings.
     """
 
     def __init__(self, collection_name: str = "codebase"):
         self.collection_name = collection_name
 
-        # Force loading API key from .env instead of old PowerShell environment variable
-        load_dotenv(override=True)
-
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "OPENAI_API_KEY is missing. Add it to your .env file."
-            )
-
         self.client = chromadb.PersistentClient(path="chroma_db")
 
-        self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=api_key,
-            model_name="text-embedding-3-small"
+        # Free local embedding model.
+        # First run may download the model, then it will be cached locally.
+        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
         )
 
         self.collection = self.client.get_or_create_collection(
@@ -99,13 +90,11 @@ class CodebaseVectorStore:
         """
         Search ChromaDB for chunks most relevant to the query.
         """
-        results = self.collection.query(
+        return self.collection.query(
             query_texts=[query],
             n_results=n_results,
             include=["documents", "metadatas", "distances"]
         )
-
-        return results
 
     def count(self) -> int:
         """
