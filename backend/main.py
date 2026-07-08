@@ -1,3 +1,5 @@
+import json
+import os
 import time
 from typing import Optional
 
@@ -20,15 +22,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-vector_store = CodebaseVectorStore()
+STATS_FILE = "index_stats.json"
 
-CURRENT_STATS = {
+DEFAULT_STATS = {
     "repo_url": None,
     "files_processed": 0,
     "chunks_created": 0,
     "chunks_indexed": 0,
     "index_ready": False,
 }
+
+
+def load_stats() -> dict:
+    """
+    Load persisted indexing stats from disk.
+    """
+    if not os.path.exists(STATS_FILE):
+        return DEFAULT_STATS.copy()
+
+    try:
+        with open(STATS_FILE, "r", encoding="utf-8") as file:
+            stats = json.load(file)
+
+        return {
+            **DEFAULT_STATS,
+            **stats
+        }
+    except Exception:
+        return DEFAULT_STATS.copy()
+
+
+def save_stats(stats: dict) -> None:
+    """
+    Save indexing stats to disk.
+    """
+    with open(STATS_FILE, "w", encoding="utf-8") as file:
+        json.dump(stats, file, indent=2)
+
+
+vector_store = CodebaseVectorStore()
+CURRENT_STATS = load_stats()
 
 
 class IngestRequest(BaseModel):
@@ -54,6 +87,8 @@ def ingest_repository(request: IngestRequest):
     """
     Clone a GitHub repository, load files, chunk them, and index chunks in ChromaDB.
     """
+    global CURRENT_STATS
+
     try:
         start_time = time.time()
 
@@ -78,11 +113,15 @@ def ingest_repository(request: IngestRequest):
 
         latency_ms = round((time.time() - start_time) * 1000)
 
-        CURRENT_STATS["repo_url"] = request.repo_url
-        CURRENT_STATS["files_processed"] = len(documents)
-        CURRENT_STATS["chunks_created"] = len(chunks)
-        CURRENT_STATS["chunks_indexed"] = indexed_count
-        CURRENT_STATS["index_ready"] = True
+        CURRENT_STATS = {
+            "repo_url": request.repo_url,
+            "files_processed": len(documents),
+            "chunks_created": len(chunks),
+            "chunks_indexed": indexed_count,
+            "index_ready": True,
+        }
+
+        save_stats(CURRENT_STATS)
 
         return {
             "status": "success",
@@ -96,6 +135,7 @@ def ingest_repository(request: IngestRequest):
 
     except Exception as error:
         CURRENT_STATS["index_ready"] = False
+        save_stats(CURRENT_STATS)
         raise HTTPException(status_code=500, detail=str(error))
 
 
@@ -105,7 +145,7 @@ def query_codebase(request: QueryRequest):
     Search indexed code chunks and generate a source-aware answer.
     """
     try:
-        if not CURRENT_STATS["index_ready"] and vector_store.count() == 0:
+        if vector_store.count() == 0:
             raise HTTPException(
                 status_code=400,
                 detail="No repository has been indexed yet. Please call /ingest first."
@@ -142,7 +182,10 @@ def stats():
     """
     Return current indexing stats.
     """
+    vector_count = vector_store.count()
+
     return {
         **CURRENT_STATS,
-        "vector_store_count": vector_store.count()
+        "index_ready": CURRENT_STATS["index_ready"] or vector_count > 0,
+        "vector_store_count": vector_count
     }
