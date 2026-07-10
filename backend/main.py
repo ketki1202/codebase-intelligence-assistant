@@ -74,6 +74,14 @@ class QueryRequest(BaseModel):
     n_results: int = 5
 
 
+@app.get("/")
+def root():
+    return {
+        "message": "Codebase Intelligence API is running.",
+        "docs": "Visit /docs for interactive API documentation.",
+        "endpoints": ["/health", "/ingest", "/query", "/stats"]
+    }
+
 @app.get("/health")
 def health():
     return {

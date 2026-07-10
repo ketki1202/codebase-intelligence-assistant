@@ -9,6 +9,13 @@ import type {
   StatsResponse,
 } from "./api";
 
+const exampleQuestions = [
+  "Where is the command line interface defined?",
+  "How are commands and groups created?",
+  "How are options passed to a command?",
+  "How does Click handle command line arguments?",
+];
+
 function App() {
   const [repoUrl, setRepoUrl] = useState<string>(
     "https://github.com/pallets/click"
@@ -40,7 +47,7 @@ function App() {
   async function handleIngest() {
     try {
       setLoading(true);
-      setStatusMessage("Indexing repository...");
+      setStatusMessage("Indexing repository. This may take a few moments...");
       setQueryResult(null);
 
       const result = await ingestRepository(repoUrl, maxChunks);
@@ -58,7 +65,7 @@ function App() {
   async function handleQuery() {
     try {
       setLoading(true);
-      setStatusMessage("Searching codebase...");
+      setStatusMessage("Searching indexed codebase...");
 
       const result = await queryCodebase(question, 5);
       setQueryResult(result);
@@ -75,19 +82,31 @@ function App() {
   return (
     <main className="page">
       <section className="hero">
-        <p className="eyebrow">Codebase Intelligence Assistant</p>
-        <h1>Ask questions about any public GitHub repository.</h1>
+        <div className="hero-badge">Full-stack RAG project</div>
+        <h1>Codebase Intelligence Assistant</h1>
         <p className="subtitle">
-          Ingest a repo, index source-aware chunks with local embeddings, and
-          retrieve relevant files through a FastAPI + ChromaDB backend.
+          Ask questions about a public GitHub repository. The app ingests source
+          files, chunks them, stores local embeddings in ChromaDB, and returns
+          source-aware answers with evidence snippets.
         </p>
+
+        <div className="tech-row">
+          <span>FastAPI</span>
+          <span>React</span>
+          <span>ChromaDB</span>
+          <span>Sentence Transformers</span>
+          <span>RAG</span>
+        </div>
       </section>
 
       <section className="grid">
         <div className="card">
-          <h2>1. Ingest Repository</h2>
+          <div className="card-header">
+            <p className="step">Step 1</p>
+            <h2>Ingest Repository</h2>
+          </div>
 
-          <label>GitHub Repository URL</label>
+          <label>GitHub repository URL</label>
           <input
             value={repoUrl}
             onChange={(event) => setRepoUrl(event.target.value)}
@@ -128,7 +147,10 @@ function App() {
         </div>
 
         <div className="card">
-          <h2>2. Query Codebase</h2>
+          <div className="card-header">
+            <p className="step">Step 2</p>
+            <h2>Query Codebase</h2>
+          </div>
 
           <label>Question</label>
           <textarea
@@ -136,6 +158,20 @@ function App() {
             onChange={(event) => setQuestion(event.target.value)}
             placeholder="Ask a question about the indexed repository"
           />
+
+          <div className="examples">
+            <p>Try an example:</p>
+            {exampleQuestions.map((example) => (
+              <button
+                className="example-button"
+                key={example}
+                type="button"
+                onClick={() => setQuestion(example)}
+              >
+                {example}
+              </button>
+            ))}
+          </div>
 
           <button onClick={handleQuery} disabled={loading || !question}>
             {loading ? "Working..." : "Ask Question"}
@@ -147,7 +183,11 @@ function App() {
 
       {stats && (
         <section className="card">
-          <h2>Index Stats</h2>
+          <div className="card-header">
+            <p className="step">Index</p>
+            <h2>Repository Stats</h2>
+          </div>
+
           <div className="stats-grid">
             <p>
               <strong>Repo:</strong> {stats.repo_url || "None"}
@@ -173,11 +213,21 @@ function App() {
 
       {queryResult && (
         <section className="card answer-card">
-          <h2>Answer</h2>
+          <div className="card-header">
+            <p className="step">Result</p>
+            <h2>Source-aware Answer</h2>
+          </div>
+
+          <div className="metrics-row">
+            <span>{queryResult.retrieved_chunks} chunks retrieved</span>
+            <span>{queryResult.num_sources} source files</span>
+            <span>{queryResult.latency_ms} ms latency</span>
+          </div>
+
           <pre>{queryResult.answer}</pre>
 
           <h3>Sources</h3>
-          <ul>
+          <ul className="source-list">
             {queryResult.sources.map((source: string) => (
               <li key={source}>{source}</li>
             ))}
@@ -202,6 +252,10 @@ function App() {
           ))}
         </section>
       )}
+
+      <footer>
+        Built with FastAPI, React, ChromaDB, and local embeddings.
+      </footer>
     </main>
   );
 }
